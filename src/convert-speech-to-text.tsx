@@ -81,6 +81,32 @@ export default function Command() {
     }
   };
 
+  const generateTitle = async (transcriptionText: string): Promise<string> => {
+    try {
+      const openai = getOpenAIClient();
+      
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: "You are a helpful assistant that creates short, descriptive titles for voice transcriptions. Generate a title that is maximum 50 characters long. Return only the title, nothing else.",
+          },
+          {
+            role: "user",
+            content: `Create a short title (max 50 characters) for this transcription:\n\n${transcriptionText}`,
+          },
+        ],
+        max_tokens: 50,
+      });
+
+      return response.choices[0].message.content?.trim() || "Untitled Recording";
+    } catch (error) {
+      console.error("Failed to generate title:", error);
+      return "Untitled Recording";
+    }
+  };
+
   const transcribeRecording = async () => {
     try {
       setIsTranscribing(true);
@@ -105,6 +131,24 @@ export default function Command() {
       // Save transcription to file
       const transcriptionPath = path.join(recordingDirRef.current, "transcription.txt");
       fs.writeFileSync(transcriptionPath, transcriptionText, "utf-8");
+
+      // Generate title using ChatGPT
+      await showToast({
+        style: Toast.Style.Animated,
+        title: "Generating title...",
+      });
+
+      const title = await generateTitle(transcriptionText);
+
+      // Save metadata
+      const folderName = path.basename(recordingDirRef.current);
+      const metadata = {
+        title,
+        timestamp: folderName,
+        createdAt: new Date().toISOString(),
+      };
+      const metadataPath = path.join(recordingDirRef.current, "metadata.json");
+      fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2), "utf-8");
 
       setIsTranscribing(false);
 

@@ -3,12 +3,21 @@ import { useState, useEffect } from "react";
 import * as fs from "fs";
 import * as path from "path";
 
+interface Metadata {
+  title: string;
+  timestamp: string;
+  createdAt: string;
+}
+
 interface Recording {
   folderName: string;
+  title: string;
   date: Date;
   audioPath: string;
   transcriptionPath: string;
+  metadataPath: string;
   hasTranscription: boolean;
+  hasMetadata: boolean;
 }
 
 export default function Command() {
@@ -39,14 +48,33 @@ export default function Command() {
         if (stat.isDirectory()) {
           const audioPath = path.join(folderPath, "recording.wav");
           const transcriptionPath = path.join(folderPath, "transcription.txt");
+          const metadataPath = path.join(folderPath, "metadata.json");
           
           if (fs.existsSync(audioPath)) {
+            let title = folder;
+            let hasMetadata = false;
+
+            // Load title from metadata if exists
+            if (fs.existsSync(metadataPath)) {
+              try {
+                const metadataContent = fs.readFileSync(metadataPath, "utf-8");
+                const metadata: Metadata = JSON.parse(metadataContent);
+                title = metadata.title;
+                hasMetadata = true;
+              } catch (error) {
+                console.error("Failed to parse metadata:", error);
+              }
+            }
+
             recordingsList.push({
               folderName: folder,
+              title,
               date: stat.mtime,
               audioPath,
               transcriptionPath,
+              metadataPath,
               hasTranscription: fs.existsSync(transcriptionPath),
+              hasMetadata,
             });
           }
         }
@@ -78,9 +106,10 @@ export default function Command() {
         recordings.map((recording) => (
           <List.Item
             key={recording.folderName}
-            title={recording.folderName}
+            title={recording.title}
             subtitle={recording.hasTranscription ? "✓ Transcribed" : "⏳ No transcription"}
             accessories={[
+              { text: recording.folderName },
               { date: recording.date },
             ]}
             actions={
@@ -109,12 +138,13 @@ function RecordingDetail({ recording }: { recording: Recording }) {
   }, [recording]);
 
   const markdown = `
-# ${recording.folderName}
+# ${recording.title}
 
 ${recording.hasTranscription ? `## Transcription\n\n\`\`\`${transcription}\`\`\`` : "## No transcription available"}
 
 ---
 
+**Date:** ${recording.folderName}  
 **Audio file:** \`${recording.audioPath}\`
 ${recording.hasTranscription ? `\n**Transcription file:** \`${recording.transcriptionPath}\`` : ""}
   `;
