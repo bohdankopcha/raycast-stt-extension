@@ -14,27 +14,34 @@ export default function Command() {
       const timestamp = new Date().getTime();
       const outputPath = path.join(os.homedir(), "Downloads", `recording-${timestamp}.wav`);
       outputFileRef.current = outputPath;
-
-      await showToast({
-        style: Toast.Style.Animated,
-        title: "Starting the recording...",
-      });
       
-      recordingProcessRef.current = spawn("/opt/homebrew/bin/sox", [
-        "-d", // default audio device
-        "-r", "16000", // sample rate
-        "-c", "1", // mono
-        "-b", "16", // 16-bit
+      // Use ffmpeg with macOS AVFoundation
+      recordingProcessRef.current = spawn("/opt/homebrew/bin/ffmpeg", [
+        "-f", "avfoundation",       // macOS audio input
+        "-i", ":default",           // default microphone (system default audio input)
+        "-fflags", "nobuffer",      // disable buffering for immediate capture
+        "-flags", "low_delay",      // low latency mode
+        "-ar", "16000",             // sample rate
+        "-ac", "1",                 // mono
+        "-y",                       // overwrite output file
         outputPath,
       ]);
+
+      // Log errors for debugging
+      recordingProcessRef.current.stderr?.on("data", (data: Buffer) => {
+        console.log("ffmpeg stderr:", data.toString());
+      });
 
       recordingProcessRef.current.on("error", (error: Error) => {
         showToast({
           style: Toast.Style.Failure,
-          title: "Error occurred",
+          title: "Recording error",
           message: error.message,
         });
       });
+
+      // Give ffmpeg time to initialize audio device
+      await new Promise(resolve => setTimeout(resolve, 800));
 
       setIsRecording(true);
 
@@ -52,12 +59,35 @@ export default function Command() {
   };
 
   const stopRecording = async () => {
-    try {
-      if (recordingProcessRef.current) {
-        recordingProcessRef.current.kill("SIGINT");
-        recordingProcessRef.current = null;
-      }
+    if (!recordingProcessRef.current) return;
 
+    try {
+      await showToast({
+        style: Toast.Style.Animated,
+        title: "Stopping recording...",
+      });
+
+      // Wait for ffmpeg to close properly
+      await new Promise<void>((resolve) => {
+        recordingProcessRef.current.once("close", () => {
+          console.log("ffmpeg closed");
+          resolve();
+        });
+        
+        // Send q key to ffmpeg to stop gracefully
+        recordingProcessRef.current.stdin?.write("q");
+        recordingProcessRef.current.stdin?.end();
+        
+        // Fallback: kill after 3 seconds if not closed
+        setTimeout(() => {
+          if (recordingProcessRef.current) {
+            recordingProcessRef.current.kill("SIGKILL");
+            resolve();
+          }
+        }, 3000);
+      });
+
+      recordingProcessRef.current = null;
       setIsRecording(false);
 
       await showToast({
@@ -66,6 +96,8 @@ export default function Command() {
         message: outputFileRef.current,
       });
     } catch (error) {
+      setIsRecording(false);
+      recordingProcessRef.current = null;
       await showToast({
         style: Toast.Style.Failure,
         title: "Error",
