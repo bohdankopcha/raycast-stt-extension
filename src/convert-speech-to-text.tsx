@@ -1,8 +1,8 @@
-import { Action, ActionPanel, Form, showToast, Toast } from "@raycast/api";
+import { Action, ActionPanel, Form, showToast, Toast, environment } from "@raycast/api";
 import { useState, useRef } from "react";
 import { spawn } from "child_process";
 import * as path from "path";
-import * as os from "os";
+import * as fs from "fs";
 
 export default function Command() {
   const [isRecording, setIsRecording] = useState(false);
@@ -11,8 +11,22 @@ export default function Command() {
 
   const startRecording = async () => {
     try {
-      const timestamp = new Date().getTime();
-      const outputPath = path.join(os.homedir(), "Downloads", `recording-${timestamp}.wav`);
+      // Create recordings directory in extension support path
+      const recordingsDir = path.join(environment.supportPath, "recordings");
+      if (!fs.existsSync(recordingsDir)) {
+        fs.mkdirSync(recordingsDir, { recursive: true });
+      }
+
+      const now = new Date();
+      const day = String(now.getDate()).padStart(2, '0');
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const year = now.getFullYear();
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const seconds = String(now.getSeconds()).padStart(2, '0');
+      const timestamp = `${day}.${month}.${year}-${hours}.${minutes}.${seconds}`;
+      
+      const outputPath = path.join(recordingsDir, `recording-${timestamp}.wav`);
       outputFileRef.current = outputPath;
       
       // Use ffmpeg with macOS AVFoundation
