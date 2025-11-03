@@ -1,13 +1,17 @@
-import { Action, ActionPanel, Form, showToast, Toast, environment } from "@raycast/api";
+import { Action, ActionPanel, Form, showToast, Toast, environment, Clipboard } from "@raycast/api";
 import { useState, useRef } from "react";
 import { spawn } from "child_process";
 import * as path from "path";
 import * as fs from "fs";
+import { getOpenAIClient } from "./lib/openai";
 
 export default function Command() {
   const [isRecording, setIsRecording] = useState(false);
+  const [transcription, setTranscription] = useState<string>("");
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const recordingProcessRef = useRef<any>(null);
   const outputFileRef = useRef<string>("");
+  const recordingDirRef = useRef<string>("");
 
   const startRecording = async () => {
     try {
@@ -26,8 +30,13 @@ export default function Command() {
       const seconds = String(now.getSeconds()).padStart(2, '0');
       const timestamp = `${day}.${month}.${year}-${hours}.${minutes}.${seconds}`;
       
-      const outputPath = path.join(recordingsDir, `recording-${timestamp}.wav`);
+      // Create separate folder for this recording
+      const recordingFolder = path.join(recordingsDir, timestamp);
+      fs.mkdirSync(recordingFolder, { recursive: true });
+      
+      const outputPath = path.join(recordingFolder, "recording.wav");
       outputFileRef.current = outputPath;
+      recordingDirRef.current = recordingFolder;
       
       // Use ffmpeg with macOS AVFoundation
       recordingProcessRef.current = spawn("/opt/homebrew/bin/ffmpeg", [
@@ -72,6 +81,47 @@ export default function Command() {
     }
   };
 
+  const transcribeRecording = async () => {
+    try {
+      setIsTranscribing(true);
+      setTranscription("");
+
+      await showToast({
+        style: Toast.Style.Animated,
+        title: "Transcribing...",
+      });
+
+      const openai = getOpenAIClient();
+      const audioFile = fs.createReadStream(outputFileRef.current);
+
+      const response = await openai.audio.transcriptions.create({
+        file: audioFile,
+        model: "whisper-1",
+      });
+
+      const transcriptionText = response.text;
+      setTranscription(transcriptionText);
+
+      // Save transcription to file
+      const transcriptionPath = path.join(recordingDirRef.current, "transcription.txt");
+      fs.writeFileSync(transcriptionPath, transcriptionText, "utf-8");
+
+      setIsTranscribing(false);
+
+      await showToast({
+        style: Toast.Style.Success,
+        title: "Transcription complete",
+      });
+    } catch (error) {
+      setIsTranscribing(false);
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Transcription failed",
+        message: error instanceof Error ? error.message : "Failed to transcribe",
+      });
+    }
+  };
+
   const stopRecording = async () => {
     if (!recordingProcessRef.current) return;
 
@@ -104,11 +154,8 @@ export default function Command() {
       recordingProcessRef.current = null;
       setIsRecording(false);
 
-      await showToast({
-        style: Toast.Style.Success,
-        title: "Recording saved",
-        message: outputFileRef.current,
-      });
+      // Start transcription
+      await transcribeRecording();
     } catch (error) {
       setIsRecording(false);
       recordingProcessRef.current = null;
@@ -120,26 +167,59 @@ export default function Command() {
     }
   };
 
+  const copyTranscription = async () => {
+    await Clipboard.copy(transcription);
+    await showToast({
+      style: Toast.Style.Success,
+      title: "Copied to clipboard",
+    });
+  };
+
+  const startNewRecording = () => {
+    setTranscription("");
+  };
+
   return (
     <Form
       actions={
         <ActionPanel>
-          {!isRecording ? (
-            <Action title="Start recording" onAction={startRecording} />
-          ) : (
-            <Action title="Stop recording" onAction={stopRecording} />
-          )}
+          {transcription ? (
+            <>
+              <Action title="Copy Transcription" onAction={copyTranscription} />
+              <Action title="New Recording" onAction={startNewRecording} />
+            </>
+          ) : !isRecording && !isTranscribing ? (
+            <Action title="Start Recording" onAction={startRecording} />
+          ) : isRecording ? (
+            <Action title="Stop Recording" onAction={stopRecording} />
+          ) : null}
         </ActionPanel>
       }
     >
       <Form.Description
         title="Status"
-        text={isRecording ? "🔴 Recording..." : "⚪️ Ready to record"}
+        text={
+          isRecording
+            ? "🔴 Recording..."
+            : isTranscribing
+            ? "⏳ Transcribing..."
+            : "⚪️ Ready to record"
+        }
       />
-      <Form.Description
-        title="Instruction"
-        text="Press Cmd+Enter to start/stop recording"
-      />
+      {transcription && (
+        <Form.TextArea
+          id="transcription"
+          title="Transcription"
+          value={transcription}
+          onChange={() => {}}
+        />
+      )}
+      {!transcription && (
+        <Form.Description
+          title="Instruction"
+          text="Press Cmd+Enter to start/stop recording"
+        />
+      )}
     </Form>
   );
 }
