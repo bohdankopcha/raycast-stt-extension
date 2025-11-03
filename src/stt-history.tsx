@@ -1,0 +1,139 @@
+import { List, ActionPanel, Action, Detail, environment, showToast, Toast } from "@raycast/api";
+import { useState, useEffect } from "react";
+import * as fs from "fs";
+import * as path from "path";
+
+interface Recording {
+  folderName: string;
+  date: Date;
+  audioPath: string;
+  transcriptionPath: string;
+  hasTranscription: boolean;
+}
+
+export default function Command() {
+  const [recordings, setRecordings] = useState<Recording[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    loadRecordings();
+  }, []);
+
+  const loadRecordings = () => {
+    try {
+      const recordingsDir = path.join(environment.supportPath, "recordings");
+      
+      if (!fs.existsSync(recordingsDir)) {
+        setRecordings([]);
+        setIsLoading(false);
+        return;
+      }
+
+      const folders = fs.readdirSync(recordingsDir);
+      const recordingsList: Recording[] = [];
+
+      for (const folder of folders) {
+        const folderPath = path.join(recordingsDir, folder);
+        const stat = fs.statSync(folderPath);
+
+        if (stat.isDirectory()) {
+          const audioPath = path.join(folderPath, "recording.wav");
+          const transcriptionPath = path.join(folderPath, "transcription.txt");
+          
+          if (fs.existsSync(audioPath)) {
+            recordingsList.push({
+              folderName: folder,
+              date: stat.mtime,
+              audioPath,
+              transcriptionPath,
+              hasTranscription: fs.existsSync(transcriptionPath),
+            });
+          }
+        }
+      }
+
+      // Sort by date, newest first
+      recordingsList.sort((a, b) => b.date.getTime() - a.date.getTime());
+      
+      setRecordings(recordingsList);
+      setIsLoading(false);
+    } catch (error) {
+      showToast({
+        style: Toast.Style.Failure,
+        title: "Failed to load recordings",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <List isLoading={isLoading}>
+      {recordings.length === 0 ? (
+        <List.EmptyView
+          title="No recordings yet"
+          description="Start recording to see your history here"
+        />
+      ) : (
+        recordings.map((recording) => (
+          <List.Item
+            key={recording.folderName}
+            title={recording.folderName}
+            subtitle={recording.hasTranscription ? "✓ Transcribed" : "⏳ No transcription"}
+            accessories={[
+              { date: recording.date },
+            ]}
+            actions={
+              <ActionPanel>
+                <Action.Push
+                  title="View Details"
+                  target={<RecordingDetail recording={recording} />}
+                />
+              </ActionPanel>
+            }
+          />
+        ))
+      )}
+    </List>
+  );
+}
+
+function RecordingDetail({ recording }: { recording: Recording }) {
+  const [transcription, setTranscription] = useState<string>("");
+
+  useEffect(() => {
+    if (recording.hasTranscription) {
+      const text = fs.readFileSync(recording.transcriptionPath, "utf-8");
+      setTranscription(text);
+    }
+  }, [recording]);
+
+  const markdown = `
+# ${recording.folderName}
+
+${recording.hasTranscription ? `## Transcription\n\n\`\`\`${transcription}\`\`\`` : "## No transcription available"}
+
+---
+
+**Audio file:** \`${recording.audioPath}\`
+${recording.hasTranscription ? `\n**Transcription file:** \`${recording.transcriptionPath}\`` : ""}
+  `;
+
+  return (
+    <Detail
+      markdown={markdown}
+      actions={
+        <ActionPanel>
+          {recording.hasTranscription && (
+            <Action.CopyToClipboard
+              title="Copy Transcription"
+              content={transcription}
+            />
+          )}
+          <Action.ShowInFinder path={path.dirname(recording.audioPath)} />
+        </ActionPanel>
+      }
+    />
+  );
+}
+

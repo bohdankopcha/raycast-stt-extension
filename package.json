@@ -28,8 +28,14 @@
   "commands": [
     {
       "name": "convert-speech-to-text",
-      "title": "Convert speech to text",
-      "description": "",
+      "title": "Convert Speech to Text",
+      "description": "Record audio and transcribe it using Whisper API",
+      "mode": "view"
+    },
+    {
+      "name": "stt-history",
+      "title": "STT History",
+      "description": "View all your speech-to-text recordings and transcriptions",
       "mode": "view"
     }
   ],
