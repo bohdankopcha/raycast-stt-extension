@@ -15,6 +15,16 @@
     "Communication"
   ],
   "license": "MIT",
+  "preferences": [
+    {
+      "name": "openaiApiKey",
+      "type": "password",
+      "required": true,
+      "title": "OpenAI API Key",
+      "description": "Your OpenAI API key for Whisper API",
+      "placeholder": "sk-..."
+    }
+  ],
   "commands": [
     {
       "name": "convert-speech-to-text",
@@ -25,7 +35,8 @@
   ],
   "dependencies": {
     "@raycast/api": "^1.103.5",
-    "@raycast/utils": "^1.17.0"
+    "@raycast/utils": "^1.17.0",
+    "openai": "^4.77.3"
   },
   "devDependencies": {
     "@raycast/eslint-config": "^2.0.4",
